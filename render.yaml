@@ -16,4 +16,18 @@ services:
         sync: false
       - key: METRICS_TOKEN
         sync: false
+      - key: DODO_ENVIRONMENT
+        value: test_mode
+      - key: DODO_PAYMENTS_API_KEY
+        sync: false
+      - key: DODO_PRODUCT_WEEKLY
+        sync: false
+      - key: DODO_PRODUCT_MONTHLY
+        sync: false
+      - key: DODO_PRODUCT_STUDIO
+        sync: false
+      - key: DODO_PRODUCT_ANNUAL
+        sync: false
+      - key: PUBLIC_APP_URL
+        value: https://mayia-az6g.onrender.com
 
