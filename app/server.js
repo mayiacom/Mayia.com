@@ -7,6 +7,13 @@ const port = Number(process.env.PORT || 3210);
 const host = process.env.HOST || '0.0.0.0';
 const model = process.env.OPENAI_MODEL || 'gpt-4.1-mini';
 const generationRequests = new Map();
+const membershipPlans = {
+  weekly: { env: 'DODO_PRODUCT_WEEKLY', name: 'Mayia Week' },
+  monthly: { env: 'DODO_PRODUCT_MONTHLY', name: 'Mayia Creator' },
+  studio: { env: 'DODO_PRODUCT_STUDIO', name: 'Mayia Studio' },
+  annual: { env: 'DODO_PRODUCT_ANNUAL', name: 'Mayia Annual' }
+};
+const dodoApiBase = () => process.env.DODO_ENVIRONMENT === 'live_mode' ? 'https://live.dodopayments.com' : 'https://test.dodopayments.com';
 function loadEnv(file) {
   if (!fs.existsSync(file)) return;
   for (const line of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
@@ -27,6 +34,47 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   if (req.method === 'GET' && url.pathname === '/health') return send(res, 200, { ok: true });
   if (req.method === 'GET' && url.pathname === '/api/status') return send(res, 200, { configured: Boolean(process.env.OPENAI_API_KEY), model });
+  if (req.method === 'GET' && url.pathname === '/api/billing/status') {
+    const configured = Boolean(process.env.DODO_PAYMENTS_API_KEY);
+    const plans = Object.fromEntries(Object.entries(membershipPlans).map(([id, plan]) => [id, Boolean(configured && process.env[plan.env])]));
+    return send(res, 200, { provider: 'Dodo Payments', environment: process.env.DODO_ENVIRONMENT === 'live_mode' ? 'live' : 'test', plans });
+  }
+  if (req.method === 'POST' && url.pathname === '/api/checkout') {
+    try {
+      const { plan: planId } = await readBody(req);
+      const plan = membershipPlans[String(planId || '')];
+      if (!plan) return send(res, 400, { error: 'Choose a valid Mayia membership plan.' });
+      const apiKey = process.env.DODO_PAYMENTS_API_KEY;
+      const productId = process.env[plan.env];
+      if (!apiKey || !productId) return send(res, 503, { error: 'Dodo checkout is not configured for this plan yet.' });
+      const publicUrl = (process.env.PUBLIC_APP_URL || 'https://mayia-az6g.onrender.com').replace(/\/$/, '');
+      const payload = {
+        product_cart: [{ product_id: productId, quantity: 1 }],
+        billing_address: { country: 'IN' },
+        billing_currency: 'INR',
+        allowed_payment_method_types: ['upi_intent', 'credit', 'debit', 'apple_pay'],
+        minimal_address: true,
+        metadata: { mayia_plan: planId },
+        return_url: `${publicUrl}/digital?checkout=return`
+      };
+      const response = await fetch(`${dodoApiBase()}/checkouts`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(15000)
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        console.error('Dodo checkout error:', response.status, data?.message || data?.error || 'request failed');
+        return send(res, 502, { error: 'Dodo could not start checkout. Check that the plan product is active and the API key matches the selected mode.' });
+      }
+      if (!data.checkout_url || !String(data.checkout_url).startsWith('https://')) return send(res, 502, { error: 'Dodo did not return a secure checkout link. Please try again.' });
+      return send(res, 200, { checkoutUrl: data.checkout_url });
+    } catch (error) {
+      console.error('Dodo checkout request failed:', error.message);
+      return send(res, 502, { error: 'Could not connect to Dodo Payments. Please try again in a moment.' });
+    }
+  }
   if (req.method === 'GET' && url.pathname === '/app.js') {
     res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-cache' });
     return fs.createReadStream(path.join(root, 'app.js')).pipe(res);
@@ -35,7 +83,7 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/css; charset=utf-8', 'Cache-Control': 'no-cache' });
     return fs.createReadStream(path.join(root, 'app.css')).pipe(res);
   }
-  if (req.method === 'POST' && url.pathname === '/api/track') { try { const { event } = await readBody(req); const allowed = new Set(['page_view','intent_selected','live_demo_started','generation_started','generation_succeeded','generation_failed','project_saved','project_opened','draft_edited','draft_shared','draft_exported','result_tab_used']); if (!allowed.has(event)) return send(res,400,{error:'Unknown event'}); const file=path.join(__dirname,'metrics.json'); let metrics={}; try{metrics=JSON.parse(fs.readFileSync(file,'utf8'))}catch{} const day=new Date().toISOString().slice(0,10); metrics[day] ||= {}; metrics[day][event]=(metrics[day][event]||0)+1; fs.writeFileSync(file,JSON.stringify(metrics,null,2)); return send(res,200,{ok:true}); } catch(error){ return send(res,400,{error:'Could not record event'}); } } if (req.method === 'GET' && url.pathname === '/api/metrics') { if (process.env.NODE_ENV === 'production' && (!process.env.METRICS_TOKEN || req.headers.authorization !== 'Bearer ' + process.env.METRICS_TOKEN)) return send(res, 401, { error: 'Unauthorized' }); try { return send(res,200,JSON.parse(fs.readFileSync(path.join(__dirname,'metrics.json'),'utf8'))); } catch { return send(res,200,{}); } }
+  if (req.method === 'POST' && url.pathname === '/api/track') { try { const { event } = await readBody(req); const allowed = new Set(['page_view','intent_selected','live_demo_started','generation_started','generation_succeeded','generation_failed','project_saved','project_opened','draft_edited','draft_shared','draft_exported','result_tab_used','membership_checkout_started']); if (!allowed.has(event)) return send(res,400,{error:'Unknown event'}); const file=path.join(__dirname,'metrics.json'); let metrics={}; try{metrics=JSON.parse(fs.readFileSync(file,'utf8'))}catch{} const day=new Date().toISOString().slice(0,10); metrics[day] ||= {}; metrics[day][event]=(metrics[day][event]||0)+1; fs.writeFileSync(file,JSON.stringify(metrics,null,2)); return send(res,200,{ok:true}); } catch(error){ return send(res,400,{error:'Could not record event'}); } } if (req.method === 'GET' && url.pathname === '/api/metrics') { if (process.env.NODE_ENV === 'production' && (!process.env.METRICS_TOKEN || req.headers.authorization !== 'Bearer ' + process.env.METRICS_TOKEN)) return send(res, 401, { error: 'Unauthorized' }); try { return send(res,200,JSON.parse(fs.readFileSync(path.join(__dirname,'metrics.json'),'utf8'))); } catch { return send(res,200,{}); } }
   if (req.method === 'POST' && url.pathname === '/api/generate') {
     const forwardedFor = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
     const clientKey = forwardedFor || req.socket.remoteAddress || 'unknown';
