@@ -121,6 +121,55 @@
       trackEvent('generation_failed'); results.innerHTML = `<div class="errorbox" role="alert"><strong>We couldn’t build that draft just now.</strong><br>${esc(error.message)}<br><br>Your form is still here. Check the connection and try again.</div><div class="empty"><div><div class="emptyicon">↻</div><h2>Ready when you are</h2><p>You can still explore the interactive sample while AI generation is unavailable.</p><div style="margin-top:18px"><button type="button" class="smallbtn" onclick="document.querySelector('#demoBtn').click()">Open sample blueprint</button></div></div></div>`;
     } finally { button.innerHTML = original; button.disabled = false; results.classList.remove('loading'); }
   });
+  const billingMessage = $('#billingMessage');
+  const membershipMenuNote = $('#membershipMenuNote');
+  const checkoutButtons = $$('[data-plan]');
+  async function loadBillingStatus() {
+    try {
+      const response = await fetch('/api/billing/status', { cache: 'no-store' });
+      const data = await response.json();
+      checkoutButtons.forEach(button => {
+        const enabled = Boolean(data.plans && data.plans[button.dataset.plan]);
+        button.disabled = !enabled;
+        button.textContent = enabled ? 'Continue with Dodo' : 'Checkout setup pending';
+      });
+      if (data.environment === 'test' && Object.values(data.plans || {}).some(Boolean)) {
+        billingMessage.textContent = 'Dodo test mode is enabled. Test checkouts do not charge customers. UPI appears in INR for eligible customers in India; switch Dodo to live mode after test purchases succeed.';
+        membershipMenuNote.textContent = 'Dodo test checkout is enabled. No real payments are collected in test mode.';
+      } else if (Object.values(data.plans || {}).some(Boolean)) {
+        billingMessage.textContent = 'Secure checkout is handled by Dodo Payments. UPI appears in INR for eligible customers in India; Dodo shows the final amount and available methods before payment.';
+        membershipMenuNote.textContent = 'Secure checkout is handled by Dodo Payments. UPI appears for eligible Indian customers.';
+      } else {
+        billingMessage.textContent = 'Membership checkout is being configured. The free Mayia studio is available now.';
+      }
+    } catch {
+      billingMessage.textContent = 'Membership checkout is temporarily unavailable. The free Mayia studio is available now.';
+    }
+  }
+  checkoutButtons.forEach(button => button.addEventListener('click', async () => {
+    const original = button.textContent;
+    button.disabled = true;
+    button.textContent = 'Opening secure checkout…';
+    trackEvent('membership_checkout_started');
+    try {
+      const response = await fetch('/api/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ plan: button.dataset.plan }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Could not start secure checkout.');
+      window.location.assign(data.checkoutUrl);
+    } catch (error) {
+      showToast(error.message || 'Checkout is unavailable. Please try again.');
+      button.disabled = false;
+      button.textContent = original;
+    }
+  }));
+  const checkoutReturn = new URLSearchParams(location.search).get('checkout');
+  if (checkoutReturn === 'return') {
+    showToast('You returned from Dodo checkout. Check your Dodo confirmation email for the payment and membership status.');
+    const cleanUrl = new URL(location.href);
+    ['checkout', 'status', 'payment_id', 'subscription_id', 'email'].forEach(key => cleanUrl.searchParams.delete(key));
+    history.replaceState({}, '', cleanUrl);
+  }
+  loadBillingStatus();
   trackEvent('page_view');
 })();
 
