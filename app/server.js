@@ -48,11 +48,11 @@ const server = http.createServer(async (req, res) => {
       if (!plan) return send(res, 400, { error: 'Choose a valid Mayia membership plan.' });
       const name = String(customer?.name || '').trim().slice(0, 100);
       const email = String(customer?.email || '').trim().slice(0, 160);
-      const phone = String(customer?.phone || '').replace(/\\D/g, '').slice(-10);
+      const phone = String(customer?.phone || '').replace(/\D/g, '').slice(-10);
       const amount = Number(process.env[plan.amountEnv]);
       if (!cashfreeReady() || !Number.isFinite(amount) || amount <= 0) return send(res, 503, { error: 'Cashfree checkout is not configured for this plan yet.' });
-      if (name.length < 2 || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email) || phone.length !== 10) return send(res, 400, { error: 'Enter your name, a valid email, and a 10-digit Indian phone number.' });
-      const publicUrl = (process.env.PUBLIC_APP_URL || 'https://mayia-az6g.onrender.com').replace(/\\/$/, '');
+      if (name.length < 2 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || phone.length !== 10) return send(res, 400, { error: 'Enter your name, a valid email, and a 10-digit Indian phone number.' });
+      const publicUrl = (process.env.PUBLIC_APP_URL || 'https://mayia-az6g.onrender.com').replace(/\/$/, '');
       const subscriptionId = `mayia_${planId}_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;
       const response = await fetch(`${cashfreeApiBase()}/subscriptions`, {
         method: 'POST',
