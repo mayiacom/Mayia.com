@@ -124,33 +124,56 @@
   const billingMessage = $('#billingMessage');
   const membershipMenuNote = $('#membershipMenuNote');
   const checkoutButtons = $$('[data-plan]');
+  const currencyButtons = $$('[data-currency]');
+  const currencyNote = $('#currencyNote');
+  let billingData = { plans: {}, amounts: {} };
+  let selectedCurrency = 'INR';
+  const periods = { weekly: '/ week', monthly: '/ month', studio: '/ month', annual: '/ year' };
+  function renderCurrency() {
+    const values = billingData.amounts?.[selectedCurrency] || {};
+    const symbol = selectedCurrency === 'INR' ? '₹' : '$';
+    const locale = selectedCurrency === 'INR' ? 'en-IN' : 'en-US';
+    for (const id of Object.keys(periods)) {
+      const amount = Number(values[id]) || 0;
+      const price = document.querySelector(`[data-price="${id}"]`);
+      if (price && amount > 0) price.innerHTML = `${symbol}${amount.toLocaleString(locale)} <small>${price.dataset.period || periods[id]}</small>`;
+      const menuPrice = document.querySelector(`[data-menu-price="${id}"]`);
+      if (menuPrice && amount > 0) menuPrice.innerHTML = `${symbol}${amount.toLocaleString(locale)} <small>${periods[id]}</small>`;
+    }
+    $$('.membership-option strong').forEach((node, index) => {
+      const id = Object.keys(periods)[index]; const amount = Number(values[id]) || 0;
+      if (amount > 0) node.innerHTML = `${symbol}${amount.toLocaleString(locale)} <small>${periods[id]}</small>`;
+    });
+    currencyButtons.forEach(button => {
+      const chosen = button.dataset.currency === selectedCurrency;
+      button.classList.toggle('selected', chosen); button.setAttribute('aria-pressed', String(chosen));
+    });
+    currencyNote.textContent = selectedCurrency === 'INR'
+      ? 'Indian payment option selected. UPI and domestic methods are charged in INR.'
+      : 'International payment option selected. International checkout is charged in USD; available payment methods depend on Cashfree account activation.';
+    checkoutButtons.forEach(button => {
+      const enabled = Boolean(billingData.plans?.[selectedCurrency]?.[button.dataset.plan]);
+      button.disabled = !enabled;
+      button.textContent = enabled ? `Continue with Cashfree · ${selectedCurrency}` : 'Checkout setup pending';
+    });
+  }
+  currencyButtons.forEach(button => button.addEventListener('click', () => {
+    selectedCurrency = button.dataset.currency;
+    renderCurrency();
+  }));
   async function loadBillingStatus() {
     try {
       const response = await fetch('/api/billing/status', { cache: 'no-store' });
-      const data = await response.json();
-      checkoutButtons.forEach(button => {
-        const enabled = Boolean(data.plans && data.plans[button.dataset.plan]);
-        button.disabled = !enabled;
-        button.textContent = enabled ? 'Continue with Cashfree' : 'Checkout setup pending';
-      });
-      const menuPrices = $$('.membership-option strong');
-      const usdPrices = ['$10', '$20', '$50', '$100'];
-      ['weekly', 'monthly', 'studio', 'annual'].forEach((id, index) => {
-        const amount = Number((data.amounts || {})[id]);
-        const cardPrice = document.querySelector(`[data-price="${id}"]`);
-        const period = ['/ week', '/ month', '/ month', '/ year'][index];
-        const displayPrice = `₹${amount.toLocaleString('en-IN')} <small>(${usdPrices[index]}) ${period}</small>`;
-        if (cardPrice && amount > 0) cardPrice.innerHTML = displayPrice;
-        if (menuPrices[index] && amount > 0) menuPrices[index].innerHTML = displayPrice;
-      });
-      if (Object.values(data.plans || {}).some(Boolean) && data.environment === 'sandbox') {
-        billingMessage.textContent = 'Cashfree sandbox subscriptions are enabled. Sandbox payments do not charge customers; verify every plan before switching to production.';
+      billingData = await response.json();
+      renderCurrency();
+      if (billingData.environment === 'sandbox') {
+        billingMessage.textContent = 'Cashfree sandbox subscriptions are enabled. Sandbox payments do not charge customers; verify each currency and plan before switching to production.';
         membershipMenuNote.textContent = 'Cashfree sandbox checkout is enabled. No real payments are collected.';
-      } else if (Object.values(data.plans || {}).some(Boolean)) {
-        billingMessage.textContent = 'Recurring membership checkout is handled securely by Cashfree. Review the amount and mandate details before approving.';
-        membershipMenuNote.textContent = 'Secure recurring checkout is handled by Cashfree.';
+      } else if (Object.values(billingData.plans?.INR || {}).some(Boolean) || Object.values(billingData.plans?.USD || {}).some(Boolean)) {
+        billingMessage.textContent = 'Cashfree processes your selected currency securely. Review the final amount and payment method in checkout before authorizing.';
+        membershipMenuNote.textContent = 'Secure checkout is handled by Cashfree.';
       } else {
-        billingMessage.textContent = 'Cashfree checkout is not active yet. Add Cashfree sandbox credentials and INR plan amounts in Render to enable memberships. Free beta remains open.';
+        billingMessage.textContent = 'Cashfree checkout is not active yet. Free beta remains open; paid checkout starts after your Cashfree currencies and credentials are configured.';
         membershipMenuNote.textContent = 'Cashfree checkout setup is pending.';
       }
     } catch {
@@ -169,7 +192,7 @@
     button.textContent = 'Opening secure checkout…';
     trackEvent('membership_checkout_started');
     try {
-      const response = await fetch('/api/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ plan: button.dataset.plan, customer: { name, email, phone } }) });
+      const response = await fetch('/api/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ plan: button.dataset.plan, currency: selectedCurrency, customer: { name, email, phone } }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Could not start secure checkout.');
       if (!window.Cashfree) throw new Error('Cashfree checkout could not load. Refresh and try again.');
@@ -185,7 +208,12 @@
   if (checkoutReturn === 'return') {
     showToast('You returned from Cashfree. Your subscription authorization may still be pending.');
     const cleanUrl = new URL(location.href);
-    ['checkout', 'status', 'payment_id', 'subscription_id', 'email'].forEach(key => cleanUrl.searchParams.delete(key));
+    ['checkout', 'status', 'payment_id', 'subscription_id', 'email', 'ba_token', 'token', 'PayerID'].forEach(key => cleanUrl.searchParams.delete(key));
+    history.replaceState({}, '', cleanUrl);
+  } else if (checkoutReturn === 'cancelled') {
+    showToast('Checkout was cancelled. No membership payment was completed.');
+    const cleanUrl = new URL(location.href);
+    cleanUrl.searchParams.delete('checkout');
     history.replaceState({}, '', cleanUrl);
   }
   loadBillingStatus();
