@@ -9,10 +9,10 @@ const host = process.env.HOST || '0.0.0.0';
 const model = process.env.OPENAI_MODEL || 'gpt-4.1-mini';
 const generationRequests = new Map();
 const membershipPlans = {
-  weekly: { amountEnv: 'CASHFREE_PRICE_WEEKLY', interval: 'WEEK', name: 'Mayia Week' },
-  monthly: { amountEnv: 'CASHFREE_PRICE_MONTHLY', interval: 'MONTH', name: 'Mayia Creator' },
-  studio: { amountEnv: 'CASHFREE_PRICE_STUDIO', interval: 'MONTH', name: 'Mayia Studio' },
-  annual: { amountEnv: 'CASHFREE_PRICE_ANNUAL', interval: 'YEAR', name: 'Mayia Annual' }
+  weekly: { amountEnv: { INR: 'CASHFREE_PRICE_WEEKLY', USD: 'CASHFREE_PRICE_USD_WEEKLY' }, interval: 'WEEK', name: 'Mayia Week' },
+  monthly: { amountEnv: { INR: 'CASHFREE_PRICE_MONTHLY', USD: 'CASHFREE_PRICE_USD_MONTHLY' }, interval: 'MONTH', name: 'Mayia Creator' },
+  studio: { amountEnv: { INR: 'CASHFREE_PRICE_STUDIO', USD: 'CASHFREE_PRICE_USD_STUDIO' }, interval: 'MONTH', name: 'Mayia Studio' },
+  annual: { amountEnv: { INR: 'CASHFREE_PRICE_ANNUAL', USD: 'CASHFREE_PRICE_USD_ANNUAL' }, interval: 'YEAR', name: 'Mayia Annual' }
 };
 const cashfreeApiBase = () => process.env.CASHFREE_ENVIRONMENT === 'production' ? 'https://api.cashfree.com/pg' : 'https://sandbox.cashfree.com/pg';
 const cashfreeReady = () => Boolean(process.env.CASHFREE_APP_ID && process.env.CASHFREE_SECRET_KEY);
@@ -37,19 +37,22 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && url.pathname === '/health') return send(res, 200, { ok: true });
   if (req.method === 'GET' && url.pathname === '/api/status') return send(res, 200, { configured: Boolean(process.env.OPENAI_API_KEY), model });
   if (req.method === 'GET' && url.pathname === '/api/billing/status') {
-    const amounts = Object.fromEntries(Object.entries(membershipPlans).map(([id, plan]) => [id, Number(process.env[plan.amountEnv]) || 0]));
-    const plans = Object.fromEntries(Object.entries(membershipPlans).map(([id]) => [id, Boolean(cashfreeReady() && amounts[id] > 0)]));
+    const currencies = ['INR', 'USD'];
+    const amounts = Object.fromEntries(currencies.map(currency => [currency, Object.fromEntries(Object.entries(membershipPlans).map(([id, plan]) => [id, Number(process.env[plan.amountEnv[currency]]) || 0]))]));
+    const plans = Object.fromEntries(currencies.map(currency => [currency, Object.fromEntries(Object.entries(membershipPlans).map(([id]) => [id, Boolean(cashfreeReady() && amounts[currency][id] > 0)]))]));
     return send(res, 200, { provider: 'Cashfree', environment: process.env.CASHFREE_ENVIRONMENT === 'production' ? 'production' : 'sandbox', plans, amounts });
   }
   if (req.method === 'POST' && url.pathname === '/api/checkout') {
     try {
-      const { plan: planId, customer } = await readBody(req);
+      const { plan: planId, currency: requestedCurrency, customer } = await readBody(req);
+      const currency = String(requestedCurrency || '');
+      if (!['INR', 'USD'].includes(currency)) return send(res, 400, { error: 'Choose INR or USD checkout.' });
       const plan = membershipPlans[String(planId || '')];
       if (!plan) return send(res, 400, { error: 'Choose a valid Mayia membership plan.' });
       const name = String(customer?.name || '').trim().slice(0, 100);
       const email = String(customer?.email || '').trim().slice(0, 160);
       const phone = String(customer?.phone || '').replace(/\D/g, '').slice(-10);
-      const amount = Number(process.env[plan.amountEnv]);
+      const amount = Number(process.env[plan.amountEnv[currency]]);
       if (!cashfreeReady() || !Number.isFinite(amount) || amount <= 0) return send(res, 503, { error: 'Cashfree checkout is not configured for this plan yet.' });
       if (name.length < 2 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || phone.length !== 10) return send(res, 400, { error: 'Enter your name, a valid email, and a 10-digit Indian phone number.' });
       const publicUrl = (process.env.PUBLIC_APP_URL || 'https://mayia-az6g.onrender.com').replace(/\/$/, '');
@@ -60,10 +63,10 @@ const server = http.createServer(async (req, res) => {
         body: JSON.stringify({
           subscription_id: subscriptionId,
           customer_details: { customer_name: name, customer_email: email, customer_phone: phone },
-          plan_details: { plan_name: plan.name, plan_type: 'PERIODIC', plan_amount: amount, plan_max_amount: amount, plan_max_cycles: 120, plan_intervals: 1, plan_currency: 'INR', plan_interval_type: plan.interval, plan_note: `Mayia ${plan.name}` },
+          plan_details: { plan_name: plan.name, plan_type: 'PERIODIC', plan_amount: amount, plan_max_amount: amount, plan_max_cycles: 120, plan_intervals: 1, plan_currency: currency, plan_interval_type: plan.interval, plan_note: `Mayia ${plan.name}` },
           authorization_details: { authorization_amount: amount, authorization_amount_refund: true },
           subscription_meta: { return_url: `${publicUrl}/digital?checkout=return`, notification_channel: ['EMAIL', 'SMS'] },
-          subscription_tags: { mayia_plan: planId }
+          subscription_tags: { mayia_plan: planId, mayia_currency: currency }
         }),
         signal: AbortSignal.timeout(15000)
       });
