@@ -30,6 +30,14 @@ services:
         sync: false
       - key: CASHFREE_PRICE_ANNUAL
         sync: false
+      - key: CASHFREE_PRICE_USD_WEEKLY
+        sync: false
+      - key: CASHFREE_PRICE_USD_MONTHLY
+        sync: false
+      - key: CASHFREE_PRICE_USD_STUDIO
+        sync: false
+      - key: CASHFREE_PRICE_USD_ANNUAL
+        sync: false
       - key: PUBLIC_APP_URL
         value: https://mayia-az6g.onrender.com
 
