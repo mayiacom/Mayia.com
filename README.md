@@ -19,15 +19,13 @@ Keep `.env` private. The app ignores it in Git. The local server sends generatio
 
 The app requires internet access and an active API key with API billing enabled. Generated copy is a starting draft; review claims, pricing, and product contents before selling.
 
-## Memberships with Dodo Payments
+## Cashfree memberships
 
-Mayia creates hosted Dodo checkout sessions for four subscription products. Customers in India can see UPI when Dodo identifies India and INR as eligible; checkout also offers eligible card and Apple Pay methods. The customer enters billing details and authorizes any recurring UPI mandate in Dodo. Dodo handles subscription billing and customer confirmation.
+Cashfree is the only payment integration and receives/settles membership payments under your Cashfree merchant account. Mayia creates recurring Cashfree subscriptions and opens Cashfree's hosted subscription checkout. It does not hard-code a payment-method list; Cashfree presents methods enabled for your account and supported for recurring mandates. Not every one-time payment method is necessarily available for subscriptions. Keep the API secret in Render settings, never in browser code, chat, or Git.
 
-Create four subscription products in Dodo with the same cadence and prices shown on Mayia: $10 weekly, $20 monthly, $50 monthly, and $100 yearly. Copy each product ID. In Dodo, enable Adaptive Currency so Indian subscribers can pay in INR with UPI. Start with Dodo test mode and test product IDs.
+To enable checkout, set the Cashfree sandbox App ID and Secret Key, then set whole INR prices for `CASHFREE_PRICE_WEEKLY`, `CASHFREE_PRICE_MONTHLY`, `CASHFREE_PRICE_STUDIO`, and `CASHFREE_PRICE_ANNUAL`. Prices remain blank until chosen and are not automatically converted from the existing USD amounts. Keep `CASHFREE_ENVIRONMENT=sandbox` until each plan is verified. Switch to `production` only with production credentials and an activated Cashfree subscriptions account.
 
-In Render's Mayia service environment, set `DODO_PAYMENTS_API_KEY` to the private API key and `DODO_PRODUCT_WEEKLY`, `DODO_PRODUCT_MONTHLY`, `DODO_PRODUCT_STUDIO`, and `DODO_PRODUCT_ANNUAL` to the matching product IDs. Keep `DODO_ENVIRONMENT=test_mode` while testing. For real payments after successful testing and Dodo account verification, switch to `live_mode` and use a live API key and live product IDs. Set `PUBLIC_APP_URL` to the production site origin so Dodo returns customers to Mayia. Never put the API key in browser code or commit it to Git.
-
-Dodo's India subscription flow uses RBI-compliant mandates. Dodo documents a 48-hour pre-debit notification delay for renewals on Indian UPI and cards. Dodo controls the payment and subscription status; Mayia's AI studio remains available during the free beta, and this integration does not yet add Mayia accounts or restrict AI features by membership.
+The buyer enters their name, email, and Indian mobile number before checkout. Returning to Mayia does not by itself confirm authorization. Mayia currently does not have paid-account entitlements or access controls.
 
 ## Website experience updates
 

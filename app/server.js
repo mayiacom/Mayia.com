@@ -1,6 +1,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const http = require('node:http');
+const crypto = require('node:crypto');
 const root = path.resolve(__dirname, '..');
 loadEnv(path.join(__dirname, '.env'));
 const port = Number(process.env.PORT || 3210);
@@ -8,12 +9,13 @@ const host = process.env.HOST || '0.0.0.0';
 const model = process.env.OPENAI_MODEL || 'gpt-4.1-mini';
 const generationRequests = new Map();
 const membershipPlans = {
-  weekly: { env: 'DODO_PRODUCT_WEEKLY', name: 'Mayia Week' },
-  monthly: { env: 'DODO_PRODUCT_MONTHLY', name: 'Mayia Creator' },
-  studio: { env: 'DODO_PRODUCT_STUDIO', name: 'Mayia Studio' },
-  annual: { env: 'DODO_PRODUCT_ANNUAL', name: 'Mayia Annual' }
+  weekly: { amountEnv: 'CASHFREE_PRICE_WEEKLY', interval: 'WEEK', name: 'Mayia Week' },
+  monthly: { amountEnv: 'CASHFREE_PRICE_MONTHLY', interval: 'MONTH', name: 'Mayia Creator' },
+  studio: { amountEnv: 'CASHFREE_PRICE_STUDIO', interval: 'MONTH', name: 'Mayia Studio' },
+  annual: { amountEnv: 'CASHFREE_PRICE_ANNUAL', interval: 'YEAR', name: 'Mayia Annual' }
 };
-const dodoApiBase = () => process.env.DODO_ENVIRONMENT === 'live_mode' ? 'https://live.dodopayments.com' : 'https://test.dodopayments.com';
+const cashfreeApiBase = () => process.env.CASHFREE_ENVIRONMENT === 'production' ? 'https://api.cashfree.com/pg' : 'https://sandbox.cashfree.com/pg';
+const cashfreeReady = () => Boolean(process.env.CASHFREE_APP_ID && process.env.CASHFREE_SECRET_KEY);
 function loadEnv(file) {
   if (!fs.existsSync(file)) return;
   for (const line of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
@@ -35,44 +37,46 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && url.pathname === '/health') return send(res, 200, { ok: true });
   if (req.method === 'GET' && url.pathname === '/api/status') return send(res, 200, { configured: Boolean(process.env.OPENAI_API_KEY), model });
   if (req.method === 'GET' && url.pathname === '/api/billing/status') {
-    const configured = Boolean(process.env.DODO_PAYMENTS_API_KEY);
-    const plans = Object.fromEntries(Object.entries(membershipPlans).map(([id, plan]) => [id, Boolean(configured && process.env[plan.env])]));
-    return send(res, 200, { provider: 'Dodo Payments', environment: process.env.DODO_ENVIRONMENT === 'live_mode' ? 'live' : 'test', plans });
+    const amounts = Object.fromEntries(Object.entries(membershipPlans).map(([id, plan]) => [id, Number(process.env[plan.amountEnv]) || 0]));
+    const plans = Object.fromEntries(Object.entries(membershipPlans).map(([id]) => [id, Boolean(cashfreeReady() && amounts[id] > 0)]));
+    return send(res, 200, { provider: 'Cashfree', environment: process.env.CASHFREE_ENVIRONMENT === 'production' ? 'production' : 'sandbox', plans, amounts });
   }
   if (req.method === 'POST' && url.pathname === '/api/checkout') {
     try {
-      const { plan: planId } = await readBody(req);
+      const { plan: planId, customer } = await readBody(req);
       const plan = membershipPlans[String(planId || '')];
       if (!plan) return send(res, 400, { error: 'Choose a valid Mayia membership plan.' });
-      const apiKey = process.env.DODO_PAYMENTS_API_KEY;
-      const productId = process.env[plan.env];
-      if (!apiKey || !productId) return send(res, 503, { error: 'Dodo checkout is not configured for this plan yet.' });
-      const publicUrl = (process.env.PUBLIC_APP_URL || 'https://mayia-az6g.onrender.com').replace(/\/$/, '');
-      const payload = {
-        product_cart: [{ product_id: productId, quantity: 1 }],
-        billing_address: { country: 'IN' },
-        billing_currency: 'INR',
-        allowed_payment_method_types: ['upi_intent', 'credit', 'debit', 'apple_pay'],
-        minimal_address: true,
-        metadata: { mayia_plan: planId },
-        return_url: `${publicUrl}/digital?checkout=return`
-      };
-      const response = await fetch(`${dodoApiBase()}/checkouts`, {
+      const name = String(customer?.name || '').trim().slice(0, 100);
+      const email = String(customer?.email || '').trim().slice(0, 160);
+      const phone = String(customer?.phone || '').replace(/\\D/g, '').slice(-10);
+      const amount = Number(process.env[plan.amountEnv]);
+      if (!cashfreeReady() || !Number.isFinite(amount) || amount <= 0) return send(res, 503, { error: 'Cashfree checkout is not configured for this plan yet.' });
+      if (name.length < 2 || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email) || phone.length !== 10) return send(res, 400, { error: 'Enter your name, a valid email, and a 10-digit Indian phone number.' });
+      const publicUrl = (process.env.PUBLIC_APP_URL || 'https://mayia-az6g.onrender.com').replace(/\\/$/, '');
+      const subscriptionId = `mayia_${planId}_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;
+      const response = await fetch(`${cashfreeApiBase()}/subscriptions`, {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        headers: { 'x-api-version': '2026-01-01', 'x-client-id': process.env.CASHFREE_APP_ID, 'x-client-secret': process.env.CASHFREE_SECRET_KEY, 'x-idempotency-key': crypto.randomUUID(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subscription_id: subscriptionId,
+          customer_details: { customer_name: name, customer_email: email, customer_phone: phone },
+          plan_details: { plan_name: plan.name, plan_type: 'PERIODIC', plan_amount: amount, plan_max_amount: amount, plan_max_cycles: 120, plan_intervals: 1, plan_currency: 'INR', plan_interval_type: plan.interval, plan_note: `Mayia ${plan.name}` },
+          authorization_details: { authorization_amount: amount, authorization_amount_refund: true },
+          subscription_meta: { return_url: `${publicUrl}/digital?checkout=return`, notification_channel: ['EMAIL', 'SMS'] },
+          subscription_tags: { mayia_plan: planId }
+        }),
         signal: AbortSignal.timeout(15000)
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        console.error('Dodo checkout error:', response.status, data?.message || data?.error || 'request failed');
-        return send(res, 502, { error: 'Dodo could not start checkout. Check that the plan product is active and the API key matches the selected mode.' });
+        console.error('Cashfree subscription error:', response.status, data?.message || data?.code || 'request failed');
+        return send(res, 502, { error: 'Cashfree could not start checkout. Check account activation, credentials, and subscription settings.' });
       }
-      if (!data.checkout_url || !String(data.checkout_url).startsWith('https://')) return send(res, 502, { error: 'Dodo did not return a secure checkout link. Please try again.' });
-      return send(res, 200, { checkoutUrl: data.checkout_url });
+      if (!data.subscription_session_id) return send(res, 502, { error: 'Cashfree did not return a subscription session. Please try again.' });
+      return send(res, 200, { subscriptionSessionId: data.subscription_session_id, environment: process.env.CASHFREE_ENVIRONMENT === 'production' ? 'production' : 'sandbox' });
     } catch (error) {
-      console.error('Dodo checkout request failed:', error.message);
-      return send(res, 502, { error: 'Could not connect to Dodo Payments. Please try again in a moment.' });
+      console.error('Cashfree checkout request failed:', error.message);
+      return send(res, 502, { error: 'Could not connect to Cashfree. Please try again in a moment.' });
     }
   }
   if (req.method === 'GET' && url.pathname === '/app.js') {

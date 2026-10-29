@@ -16,17 +16,19 @@ services:
         sync: false
       - key: METRICS_TOKEN
         sync: false
-      - key: DODO_ENVIRONMENT
-        value: test_mode
-      - key: DODO_PAYMENTS_API_KEY
+      - key: CASHFREE_ENVIRONMENT
+        value: sandbox
+      - key: CASHFREE_APP_ID
         sync: false
-      - key: DODO_PRODUCT_WEEKLY
+      - key: CASHFREE_SECRET_KEY
         sync: false
-      - key: DODO_PRODUCT_MONTHLY
+      - key: CASHFREE_PRICE_WEEKLY
         sync: false
-      - key: DODO_PRODUCT_STUDIO
+      - key: CASHFREE_PRICE_MONTHLY
         sync: false
-      - key: DODO_PRODUCT_ANNUAL
+      - key: CASHFREE_PRICE_STUDIO
+        sync: false
+      - key: CASHFREE_PRICE_ANNUAL
         sync: false
       - key: PUBLIC_APP_URL
         value: https://mayia-az6g.onrender.com

@@ -131,31 +131,48 @@
       checkoutButtons.forEach(button => {
         const enabled = Boolean(data.plans && data.plans[button.dataset.plan]);
         button.disabled = !enabled;
-        button.textContent = enabled ? 'Continue with Dodo' : 'Checkout setup pending';
+        button.textContent = enabled ? 'Continue with Cashfree' : 'Checkout setup pending';
       });
-      if (data.environment === 'test' && Object.values(data.plans || {}).some(Boolean)) {
-        billingMessage.textContent = 'Dodo test mode is enabled. Test checkouts do not charge customers. UPI appears in INR for eligible customers in India; switch Dodo to live mode after test purchases succeed.';
-        membershipMenuNote.textContent = 'Dodo test checkout is enabled. No real payments are collected in test mode.';
+      const menuPrices = $$('.membership-option strong');
+      ['weekly', 'monthly', 'studio', 'annual'].forEach((id, index) => {
+        const amount = Number((data.amounts || {})[id]);
+        const cardPrice = document.querySelector(`[data-price="${id}"]`);
+        const period = ['/ week', '/ month', '/ month', '/ year'][index];
+        if (cardPrice && amount > 0) cardPrice.innerHTML = `₹${amount.toLocaleString('en-IN')} <small>${period}</small>`;
+        if (menuPrices[index] && amount > 0) menuPrices[index].innerHTML = `₹${amount.toLocaleString('en-IN')} <small>${period}</small>`;
+      });
+      if (Object.values(data.plans || {}).some(Boolean) && data.environment === 'sandbox') {
+        billingMessage.textContent = 'Cashfree sandbox subscriptions are enabled. Sandbox payments do not charge customers; verify every plan before switching to production.';
+        membershipMenuNote.textContent = 'Cashfree sandbox checkout is enabled. No real payments are collected.';
       } else if (Object.values(data.plans || {}).some(Boolean)) {
-        billingMessage.textContent = 'Secure checkout is handled by Dodo Payments. UPI appears in INR for eligible customers in India; Dodo shows the final amount and available methods before payment.';
-        membershipMenuNote.textContent = 'Secure checkout is handled by Dodo Payments. UPI appears for eligible Indian customers.';
+        billingMessage.textContent = 'Recurring membership checkout is handled securely by Cashfree. Review the amount and mandate details before approving.';
+        membershipMenuNote.textContent = 'Secure recurring checkout is handled by Cashfree.';
       } else {
-        billingMessage.textContent = 'Membership checkout is being configured. The free Mayia studio is available now.';
+        billingMessage.textContent = 'Cashfree checkout is not active yet. Add Cashfree sandbox credentials and INR plan amounts in Render to enable memberships. Free beta remains open.';
+        membershipMenuNote.textContent = 'Cashfree checkout setup is pending.';
       }
     } catch {
       billingMessage.textContent = 'Membership checkout is temporarily unavailable. The free Mayia studio is available now.';
     }
   }
   checkoutButtons.forEach(button => button.addEventListener('click', async () => {
+    const name = prompt('Your name for Cashfree checkout:');
+    if (!name) return;
+    const email = prompt('Your email address:');
+    if (!email) return;
+    const phone = prompt('Your 10-digit Indian mobile number:');
+    if (!phone) return;
     const original = button.textContent;
     button.disabled = true;
     button.textContent = 'Opening secure checkout…';
     trackEvent('membership_checkout_started');
     try {
-      const response = await fetch('/api/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ plan: button.dataset.plan }) });
+      const response = await fetch('/api/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ plan: button.dataset.plan, customer: { name, email, phone } }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Could not start secure checkout.');
-      window.location.assign(data.checkoutUrl);
+      if (!window.Cashfree) throw new Error('Cashfree checkout could not load. Refresh and try again.');
+      const cashfree = Cashfree({ mode: data.environment });
+      await cashfree.checkout({ subscriptionSessionId: data.subscriptionSessionId, redirectTarget: '_self' });
     } catch (error) {
       showToast(error.message || 'Checkout is unavailable. Please try again.');
       button.disabled = false;
@@ -164,7 +181,7 @@
   }));
   const checkoutReturn = new URLSearchParams(location.search).get('checkout');
   if (checkoutReturn === 'return') {
-    showToast('You returned from Dodo checkout. Check your Dodo confirmation email for the payment and membership status.');
+    showToast('You returned from Cashfree. Your subscription authorization may still be pending.');
     const cleanUrl = new URL(location.href);
     ['checkout', 'status', 'payment_id', 'subscription_id', 'email'].forEach(key => cleanUrl.searchParams.delete(key));
     history.replaceState({}, '', cleanUrl);
