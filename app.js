@@ -130,21 +130,38 @@
   let selectedCurrency = 'INR';
   const periods = { weekly: '/ week', monthly: '/ month', studio: '/ month', annual: '/ year' };
   function renderCurrency() {
-    const values = billingData.amounts?.[selectedCurrency] || {};
-    const symbol = selectedCurrency === 'INR' ? '₹' : '$';
-    const locale = selectedCurrency === 'INR' ? 'en-IN' : 'en-US';
+    const inrValues = billingData.amounts?.INR || {};
+    const usdValues = billingData.amounts?.USD || {};
     for (const id of Object.keys(periods)) {
-      const amount = Number(values[id]) || 0;
+      const inr = Number(inrValues[id]) || 0;
+      const usd = Number(usdValues[id]) || 0;
+      if (!inr || !usd) continue;
+      const display = `$${usd.toLocaleString('en-US')} <small>(₹${inr.toLocaleString('en-IN')}) ${periods[id]}</small>`;
       const price = document.querySelector(`[data-price="${id}"]`);
-      if (price && amount > 0) price.innerHTML = `${symbol}${amount.toLocaleString(locale)} <small>${price.dataset.period || periods[id]}</small>`;
+      if (price) price.innerHTML = display;
       const menuPrice = document.querySelector(`[data-menu-price="${id}"]`);
-      if (menuPrice && amount > 0) menuPrice.innerHTML = `${symbol}${amount.toLocaleString(locale)} <small>${periods[id]}</small>`;
+      if (menuPrice) menuPrice.innerHTML = display;
     }
     $$('.membership-option strong').forEach((node, index) => {
-      const id = Object.keys(periods)[index]; const amount = Number(values[id]) || 0;
-      if (amount > 0) node.innerHTML = `${symbol}${amount.toLocaleString(locale)} <small>${periods[id]}</small>`;
+      const id = Object.keys(periods)[index];
+      const inr = Number(inrValues[id]) || 0;
+      const usd = Number(usdValues[id]) || 0;
+      if (inr && usd) node.innerHTML = `$${usd.toLocaleString('en-US')} <small>(₹${inr.toLocaleString('en-IN')}) ${periods[id]}</small>`;
     });
     currencyButtons.forEach(button => {
+      const chosen = button.dataset.currency === selectedCurrency;
+      button.classList.toggle('selected', chosen); button.setAttribute('aria-pressed', String(chosen));
+    });
+    currencyNote.textContent = selectedCurrency === 'INR'
+      ? 'India selected. Cashfree will charge the INR amount shown in parentheses using available domestic methods.'
+      : 'International selected. Cashfree will charge the USD amount shown first using eligible international methods.';
+    checkoutButtons.forEach(button => {
+      const enabled = Boolean(billingData.plans?.[selectedCurrency]?.[button.dataset.plan]);
+      button.disabled = !enabled;
+      button.textContent = enabled ? `Continue with Cashfree · ${selectedCurrency}` : 'Checkout setup pending';
+    });
+  }
+  currencyButtons.forEach(button => {
       const chosen = button.dataset.currency === selectedCurrency;
       button.classList.toggle('selected', chosen); button.setAttribute('aria-pressed', String(chosen));
     });
