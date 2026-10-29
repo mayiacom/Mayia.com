@@ -166,10 +166,11 @@
       const response = await fetch('/api/billing/status', { cache: 'no-store' });
       billingData = await response.json();
       renderCurrency();
-      if (billingData.environment === 'sandbox') {
+      const hasPlans = Object.values(billingData.plans?.INR || {}).some(Boolean) || Object.values(billingData.plans?.USD || {}).some(Boolean);
+      if (hasPlans && billingData.environment === 'sandbox') {
         billingMessage.textContent = 'Cashfree sandbox subscriptions are enabled. Sandbox payments do not charge customers; verify each currency and plan before switching to production.';
         membershipMenuNote.textContent = 'Cashfree sandbox checkout is enabled. No real payments are collected.';
-      } else if (Object.values(billingData.plans?.INR || {}).some(Boolean) || Object.values(billingData.plans?.USD || {}).some(Boolean)) {
+      } else if (hasPlans) {
         billingMessage.textContent = 'Cashfree processes your selected currency securely. Review the final amount and payment method in checkout before authorizing.';
         membershipMenuNote.textContent = 'Secure checkout is handled by Cashfree.';
       } else {
