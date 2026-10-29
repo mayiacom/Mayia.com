@@ -134,12 +134,14 @@
         button.textContent = enabled ? 'Continue with Cashfree' : 'Checkout setup pending';
       });
       const menuPrices = $$('.membership-option strong');
+      const usdPrices = ['$10', '$20', '$50', '$100'];
       ['weekly', 'monthly', 'studio', 'annual'].forEach((id, index) => {
         const amount = Number((data.amounts || {})[id]);
         const cardPrice = document.querySelector(`[data-price="${id}"]`);
         const period = ['/ week', '/ month', '/ month', '/ year'][index];
-        if (cardPrice && amount > 0) cardPrice.innerHTML = `₹${amount.toLocaleString('en-IN')} <small>${period}</small>`;
-        if (menuPrices[index] && amount > 0) menuPrices[index].innerHTML = `₹${amount.toLocaleString('en-IN')} <small>${period}</small>`;
+        const displayPrice = `₹${amount.toLocaleString('en-IN')} <small>(${usdPrices[index]}) ${period}</small>`;
+        if (cardPrice && amount > 0) cardPrice.innerHTML = displayPrice;
+        if (menuPrices[index] && amount > 0) menuPrices[index].innerHTML = displayPrice;
       });
       if (Object.values(data.plans || {}).some(Boolean) && data.environment === 'sandbox') {
         billingMessage.textContent = 'Cashfree sandbox subscriptions are enabled. Sandbox payments do not charge customers; verify every plan before switching to production.';
