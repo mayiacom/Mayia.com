@@ -150,24 +150,12 @@
     });
     currencyButtons.forEach(button => {
       const chosen = button.dataset.currency === selectedCurrency;
-      button.classList.toggle('selected', chosen); button.setAttribute('aria-pressed', String(chosen));
+      button.classList.toggle('selected', chosen);
+      button.setAttribute('aria-pressed', String(chosen));
     });
     currencyNote.textContent = selectedCurrency === 'INR'
       ? 'India selected. Cashfree will charge the INR amount shown in parentheses using available domestic methods.'
       : 'International selected. Cashfree will charge the USD amount shown first using eligible international methods.';
-    checkoutButtons.forEach(button => {
-      const enabled = Boolean(billingData.plans?.[selectedCurrency]?.[button.dataset.plan]);
-      button.disabled = !enabled;
-      button.textContent = enabled ? `Continue with Cashfree · ${selectedCurrency}` : 'Checkout setup pending';
-    });
-  }
-  currencyButtons.forEach(button => {
-      const chosen = button.dataset.currency === selectedCurrency;
-      button.classList.toggle('selected', chosen); button.setAttribute('aria-pressed', String(chosen));
-    });
-    currencyNote.textContent = selectedCurrency === 'INR'
-      ? 'Indian payment option selected. UPI and domestic methods are charged in INR.'
-      : 'International payment option selected. International checkout is charged in USD; available payment methods depend on Cashfree account activation.';
     checkoutButtons.forEach(button => {
       const enabled = Boolean(billingData.plans?.[selectedCurrency]?.[button.dataset.plan]);
       button.disabled = !enabled;
